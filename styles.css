@@ -100,7 +100,7 @@ body {
 .reveal p,
 .reveal li,
 .reveal td {
-  font-size: 0.96rem;
+  font-size: 2.0rem;
   line-height: 1.35;
   color: var(--muted);
 }
