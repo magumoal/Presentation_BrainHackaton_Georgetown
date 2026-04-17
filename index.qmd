@@ -1,0 +1,447 @@
+---
+title: "MRIQC DB Aggregator"
+subtitle: "From a page-oriented Mongo API to an analysis-ready dashboard"
+author: "BrainhackDC working deck"
+date: 2026-04-17
+format:
+  revealjs:
+    footer: "MRIQC DB Aggregator"
+---
+
+## {data-background-gradient="linear-gradient(135deg, rgba(8, 26, 48, 0.92), rgba(17, 52, 85, 0.78))"}
+
+::: {.hero-grid}
+::: {.hero-copy}
+<div class="eyebrow">BrainhackDC presentation draft</div>
+
+# MRIQC DB Aggregator
+
+<p class="lede"><strong>Goal:</strong> make the MRIQC database easier to explore in real time by moving from a document-oriented, page-capped API to a typed PostgreSQL layer and a dashboard-friendly backend.</p>
+
+<div class="tag-row">
+  <span class="tag">API contract first</span>
+  <span class="tag">Raw payloads preserved</span>
+  <span class="tag">Dedupe-aware reads</span>
+  <span class="tag">Dashboard next</span>
+</div>
+:::
+
+::: {.hero-panel}
+### Why this matters
+
+- MRIQC DB is a large shared reference set of MRIQC outputs across `T1w`, `T2w`, and `bold`.
+- The existing public API is useful for retrieval, but awkward for repeated filtering, histograms, and duplicate analysis.
+- This project turns that archive into something a frontend can query interactively.
+
+<div class="stat-grid">
+  <div class="stat">
+    <span class="value">231,100</span>
+    <span class="label">observations sampled</span>
+  </div>
+  <div class="stat">
+    <span class="value">676 MB</span>
+    <span class="label">raw JSON archived</span>
+  </div>
+  <div class="stat">
+    <span class="value">3</span>
+    <span class="label">initial modalities</span>
+  </div>
+</div>
+:::
+:::
+
+## What MRIQC DB Is, and Why the Current API Hits a Wall
+
+::: {.grid-2}
+::: {.card}
+### What it is
+
+- MRIQC DB stores MRIQC-derived image quality metrics plus source metadata.
+- The public service is an Eve app backed by MongoDB.
+- The live interface exposes page-based list endpoints for `T1w`, `T2w`, and `bold`.
+- `max_results` is capped at `50`, which is fine for browsing records but not for interactive analysis.
+
+<div class="callout">
+  The problem is not “MongoDB is bad.” The problem is that the current serving shape does not match the workload of an analytical dashboard.
+</div>
+:::
+
+::: {.card}
+### What the dashboard needs instead
+
+- Typed filters on scanner, software version, task, and time.
+- Fast summary counts and histograms over large slices of the archive.
+- Raw vs exact-deduped vs series-deduped comparison modes.
+- Stable, reproducible queries that do not require rewalking the API page by page.
+
+<div class="metric-list">
+  <div class="metric">
+    <span class="name">Representative sample</span>
+    <span class="number">~80k rows / modality</span>
+  </div>
+  <div class="metric">
+    <span class="name">Archive span in sample</span>
+    <span class="number">2017 to 2025</span>
+  </div>
+  <div class="metric">
+    <span class="name">Current pain point</span>
+    <span class="number">repeated API scans</span>
+  </div>
+  </div>
+:::
+:::
+
+## Data Migration Strategy
+
+::: {.grid-2}
+::: {.card}
+### Strategy
+
+- Migrate against the <strong>application-level API contract</strong>, not Mongo internals.
+- Save exact page payloads first, then parse into PostgreSQL.
+- Keep transformation rerunnable from disk without re-hitting the live service.
+- Preserve unknown source fragments in JSON columns instead of over-normalizing up front.
+
+<div class="timeline">
+  <div class="timeline-item">
+    <div class="phase">Pull</div>
+    <div class="body">Probe the API frontier and fetch representative raw pages into <code>data/runs/&lt;run-id&gt;/raw/</code>.</div>
+  </div>
+  <div class="timeline-item">
+    <div class="phase">Land</div>
+    <div class="body">Treat those saved payloads as the durable landing zone and audit trail.</div>
+  </div>
+  <div class="timeline-item">
+    <div class="phase">Parse</div>
+    <div class="body">Convert observations into typed modality rows with dedupe metadata.</div>
+  </div>
+  <div class="timeline-item">
+    <div class="phase">Serve</div>
+    <div class="body">Expose dashboard-oriented summaries and distributions through FastAPI.</div>
+  </div>
+</div>
+:::
+
+::: {.card}
+### Current migration flow
+
+```{mermaid}
+flowchart LR
+  A["MRIQC public API<br/>Eve + MongoDB"] --> B["Representative page pull<br/>exact JSON saved"]
+  B --> C["Typed loaders<br/>T1w / T2w / bold"]
+  C --> D["PostgreSQL fact tables<br/>indexed + dedupe metadata"]
+  D --> E["FastAPI read layer<br/>overview / metrics / duplicates"]
+  E --> F["Dashboard"]
+```
+
+<p class="caption">This keeps extraction, transformation, and serving loosely coupled. A parser change does not force another crawl.</p>
+:::
+:::
+
+## Schema, Types, and Dedupe
+
+::: {.grid-2}
+::: {.card}
+### Schema decisions
+
+- Keep `t1w`, `t2w`, and `bold` as separate fact tables.
+- Align shared columns so a future `UNION ALL` view is still possible.
+- Use `source_api_id` as the idempotent business key for upserts.
+- Store flexible source fragments in JSON extras for forward compatibility.
+
+<div class="pill-list">
+  <span class="pill">strings stay strings when the source contract says so</span>
+  <span class="pill">dates become timezone-aware datetimes</span>
+  <span class="pill">IQMs stay floats</span>
+  <span class="pill">loader state uses enums</span>
+</div>
+
+<div class="callout">
+  A recurring typing issue was the temptation to “clean up” identifiers that look numeric. That would have been wrong for mixed-format or hashed MRIQC identifiers.
+</div>
+:::
+
+::: {.card}
+### Dedupe pressure in the sampled data
+
+<div class="metric-list">
+  <div class="metric">
+    <span class="name">T1w exact duplicate groups</span>
+    <span class="number">3,047</span>
+  </div>
+  <div class="metric">
+    <span class="name">T2w exact duplicate groups</span>
+    <span class="number">13,993</span>
+  </div>
+  <div class="metric">
+    <span class="name">bold exact duplicate groups</span>
+    <span class="number">11,380</span>
+  </div>
+  <div class="metric">
+    <span class="name">Largest T1w exact group</span>
+    <span class="number">3,479 rows</span>
+  </div>
+  <div class="metric">
+    <span class="name">Largest T2w exact group</span>
+    <span class="number">71 rows</span>
+  </div>
+  <div class="metric">
+    <span class="name">Largest bold exact group</span>
+    <span class="number">76 rows</span>
+  </div>
+</div>
+
+- `dedupe_exact_key`: direct from `provenance.md5sum`
+- `dedupe_series_key`: modality-local identity hash
+- `raw`, `exact`, and `series` are query semantics over the same base tables
+:::
+:::
+
+## Reproducible Ingestion, Scaling, and Expected Performance Gains
+
+::: {.grid-2}
+::: {.card}
+### Reproducibility and scalability choices
+
+- Sampling is page-aware, not record-exhaustive, so broad archive coverage is cheap.
+- Loads are idempotent via `INSERT ... ON CONFLICT DO UPDATE`.
+- `db-init` and `db-load` can be rerun safely after schema or parser changes.
+- Unknown fields are preserved instead of silently dropped, which makes source drift survivable.
+
+<div class="quote-block">
+  <strong>Important tradeoff:</strong> keep ingestion simple now, then add materialized views and pre-aggregates only where real dashboard usage proves there is a hot path.
+</div>
+:::
+
+::: {.card}
+### Issues encountered, and what Postgres should improve
+
+- Type fidelity mattered more than local neatness, especially for identifiers and nested source fields.
+- Dedupe is not a cleanup side quest; it changes the trustworthiness of reference distributions.
+- Cross-modality normalization is not solved yet, so dedupe stays modality-local for now.
+
+<div class="callout">
+  <strong>Expected gains:</strong> indexed filters, cheap SQL aggregates, dedupe-aware reads, and a clean path to materialized views for repeated histogram and comparison queries.
+</div>
+
+<p class="small">The deck frames these as expected improvements because the current work establishes the storage and read path; the next step is end-to-end benchmarking once the frontend query patterns stabilize.</p>
+:::
+:::
+
+## Dashboard Design: Start With the Questions Researchers Actually Ask
+
+::: {.grid-2}
+::: {.card}
+### Core design principles
+
+- Lead with <strong>overview + drilldown</strong>, not a wall of charts.
+- Make the dedupe mode visible everywhere: `raw`, `exact`, `series`.
+- Keep filtering lightweight and stable: manufacturer, model, version, task, date.
+- Make it easy to pivot from “what is in the archive?” to “how does this subset compare?”
+
+- Primary views:
+  - modality overview
+  - metric explorer
+  - missingness and categorical distributions
+  - duplicate inspection
+:::
+
+::: {.card}
+### Mock dashboard frame
+
+<div class="mini-browser">
+  <div class="toolbar">
+    <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    <code>/overview?view=series&amp;manufacturers=Siemens</code>
+  </div>
+  <div class="mock-dashboard">
+    <div class="mock-sidebar">
+      <div class="section-title"><strong>Filters</strong><span class="badge">sticky</span></div>
+      <div class="filter-line"></div>
+      <div class="filter-line mid"></div>
+      <div class="filter-line short"></div>
+      <div class="filter-line"></div>
+      <div class="section-title"><strong>View mode</strong><span class="badge">raw / exact / series</span></div>
+      <div class="filter-line mid"></div>
+      <div class="filter-line short"></div>
+    </div>
+    <div class="mock-main">
+      <div class="mock-panel">
+        <div class="section-title"><strong>Archive summary</strong><span class="badge">top cards</span></div>
+        <div class="stat-grid">
+          <div class="stat"><span class="value">7,222</span><span class="label">T1w exact rows</span></div>
+          <div class="stat"><span class="value">60,670</span><span class="label">T2w exact rows</span></div>
+          <div class="stat"><span class="value">45,710</span><span class="label">bold exact rows</span></div>
+        </div>
+      </div>
+      <div class="mock-row">
+        <div class="mock-panel">
+          <div class="section-title"><strong>Metric histogram</strong><span class="badge">fast aggregate</span></div>
+          <div class="chart-bars">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="mock-panel">
+          <div class="section-title"><strong>Top values</strong><span class="badge">scanner / version</span></div>
+          <div class="list-line"></div>
+          <div class="list-line mid"></div>
+          <div class="list-line short"></div>
+          <div class="list-line"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+:::
+:::
+
+## Dashboard Design: Future Features Worth Building Toward
+
+::: {.feature-grid}
+::: {.feature-card}
+### Cohort vs reference comparison
+
+- Upload or point at a study-specific cohort.
+- Compare that cohort against the broader MRIQC reference distribution.
+- Make the comparison explicitly dedupe-aware.
+:::
+
+::: {.feature-card}
+### Saved views and shareable URLs
+
+- Persist filter presets and comparison views.
+- Support reproducible links for collaborators.
+- Make “what am I looking at?” inspectable in the URL itself.
+:::
+
+::: {.feature-card}
+### Smarter serving layers
+
+- Materialized views for hot queries.
+- Pre-aggregated histograms for the most-used metrics.
+- Background refresh as new MRIQC DB rows arrive.
+:::
+
+::: {.feature-card}
+### Better data-quality workflows
+
+- Surface duplicate pressure more directly.
+- Flag metadata sparsity and drift across MRIQC versions.
+- Support export to notebooks for follow-up analysis.
+:::
+:::
+
+## Dashboard Tech Stack
+
+<div class="stack-grid">
+  <div class="stack-card">
+    <span class="stack-label">Frontend</span>
+    <h3>React + TypeScript + Vite</h3>
+    <p>Current frontend work starts from the existing Vite/React scaffold in this repo and is aimed at interactive analytical views rather than static pages.</p>
+  </div>
+  <div class="stack-card">
+    <span class="stack-label">API</span>
+    <h3>FastAPI</h3>
+    <p>The backend already exposes overview, metrics, missingness, distributions, extras, and duplicate summaries through a thin read layer.</p>
+  </div>
+  <div class="stack-card">
+    <span class="stack-label">Storage</span>
+    <h3>PostgreSQL + SQLAlchemy</h3>
+    <p>Typed fact tables, explicit indexes, and dedupe metadata make repeated analytical queries practical in a way the public API is not.</p>
+  </div>
+  <div class="stack-card">
+    <span class="stack-label">Dev workflow</span>
+    <h3>Pixi + Docker Compose</h3>
+    <p>Reproducible local commands for sampling, loading, profiling, and running the API reduce friction as the dashboard evolves.</p>
+  </div>
+</div>
+
+<div class="callout">
+  <strong>Presentation stack:</strong> this deck itself is a separate Quarto reveal.js repo so it stays easy to edit, restyle, and deploy with GitHub Pages.
+</div>
+
+## Dashboard Demo
+
+::: {.grid-2}
+::: {.card}
+### What I would show live
+
+<div class="demo-steps">
+  <div class="demo-step">
+    <div class="step-number">1</div>
+    <div><strong>Start with `overview`.</strong> Show how row counts change between `raw`, `exact`, and `series`.</div>
+  </div>
+  <div class="demo-step">
+    <div class="step-number">2</div>
+    <div><strong>Filter a modality slice.</strong> Narrow by scanner manufacturer, MRIQC version, or `task_id` and keep the response interactive.</div>
+  </div>
+  <div class="demo-step">
+    <div class="step-number">3</div>
+    <div><strong>Inspect one metric distribution.</strong> Use the same filters and compare the histogram in different dedupe modes.</div>
+  </div>
+  <div class="demo-step">
+    <div class="step-number">4</div>
+    <div><strong>Open duplicate summaries.</strong> Show why dedupe is necessary before using the archive as a benchmarking reference set.</div>
+  </div>
+</div>
+:::
+
+::: {.card}
+### Current demo surface
+
+```text
+GET /api/v1/overview
+GET /api/v1/modalities/{modality}/profile
+GET /api/v1/modalities/{modality}/metrics
+GET /api/v1/modalities/{modality}/metrics/{field_name}
+GET /api/v1/modalities/{modality}/duplicates/{kind}
+```
+
+- Backend demo is real today.
+- Frontend demo is the next layer to harden.
+- This slide can stay as a fallback if a live UI demo is not ready on presentation day.
+:::
+:::
+
+## Future Directions
+
+::: {.closing}
+::: {.hero-copy}
+<div class="eyebrow">Next phase</div>
+
+# Future directions
+
+<p class="lede">The immediate job is to turn the current backend into a genuinely useful exploratory dashboard. After that, the roadmap is about serving speed, richer comparison workflows, and more trustworthy normalization.</p>
+
+<div class="roadmap">
+  <div class="roadmap-item">
+    <h3>Normalization</h3>
+    <p>Introduce subject, session, and scanner dimensions without pretending there is already a universal cross-modality scan key.</p>
+  </div>
+  <div class="roadmap-item">
+    <h3>Serving layer</h3>
+    <p>Add materialized views and pre-aggregates where the frontend shows real repeated query pressure.</p>
+  </div>
+  <div class="roadmap-item">
+    <h3>Comparisons</h3>
+    <p>Support cohort-vs-reference workflows that help researchers interpret their own MRIQC outputs.</p>
+  </div>
+  <div class="roadmap-item">
+    <h3>Operationalization</h3>
+    <p>Benchmark p50/p95 queries, add deployment polish, and decide where auth or sharing controls actually add value.</p>
+  </div>
+</div>
+:::
+
+::: {.hero-panel}
+### Summary
+
+- Start from the source API contract, not the database internals.
+- Preserve raw payloads so the ingestion pipeline is reproducible.
+- Use PostgreSQL for the dashboard workload the public API was never shaped for.
+- Keep dedupe visible because it changes the meaning of the data.
+- Build the dashboard around real research questions, then optimize the hot paths.
+
+<p class="caption">Questions, edits, and aesthetic tuning should now mostly be a matter of revising <code>index.qmd</code> and <code>styles.css</code>.</p>
+:::
+:::

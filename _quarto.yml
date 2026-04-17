@@ -1,0 +1,27 @@
+project:
+  type: default
+  output-dir: _site
+  render:
+    - index.qmd
+
+format:
+  revealjs:
+    theme: simple
+    slide-number: true
+    transition: fade
+    smaller: false
+    controls: true
+    center: false
+    hash: true
+    embed-resources: true
+    css: styles.css
+    width: 1600
+    height: 900
+    margin: 0.04
+    navigation-mode: linear
+    chalkboard: false
+
+execute:
+  echo: false
+  warning: false
+  error: false

@@ -1,0 +1,11 @@
+[workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+quarto = "*"
+
+[tasks]
+build = "quarto render"
+serve = "quarto preview"
+
