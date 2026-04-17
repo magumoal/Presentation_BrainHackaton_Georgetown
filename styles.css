@@ -6,7 +6,7 @@
  */
 :root {
   --ink: #0f172a;
-  --muted: #546174;
+  --muted: #495a71;
   --paper: rgba(248, 251, 255, 0.94);
   --paper-strong: #ffffff;
   --line: rgba(15, 23, 42, 0.12);
@@ -43,7 +43,7 @@ body {
   text-align: left;
 }
 
-.reveal .slides section {
+.reveal .slides > section {
   box-sizing: border-box;
   background: var(--paper);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -51,6 +51,10 @@ body {
   box-shadow: var(--shadow);
   padding: 2.35rem 2.6rem 2rem 2.6rem;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.9rem;
 }
 
 .reveal h1,
@@ -68,7 +72,7 @@ body {
 }
 
 .reveal h2 {
-  font-size: 1.95rem;
+  font-size: 2.1rem;
   line-height: 1.08;
 }
 
@@ -78,10 +82,25 @@ body {
   letter-spacing: 0.04em;
 }
 
+.reveal .quarto-title-block h1 {
+  font-size: 2.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.reveal .quarto-title-block {
+  justify-content: center;
+}
+
+.reveal .quarto-title-block .subtitle,
+.reveal .quarto-title-block .date,
+.reveal .quarto-title-block .quarto-title-author-name {
+  color: var(--muted);
+}
+
 .reveal p,
 .reveal li,
 .reveal td {
-  font-size: 0.9rem;
+  font-size: 0.96rem;
   line-height: 1.35;
   color: var(--muted);
 }
@@ -147,14 +166,17 @@ body {
 .hero-grid {
   grid-template-columns: 1.35fr 0.95fr;
   align-items: stretch;
+  min-height: 66%;
 }
 
 .grid-2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 62%;
 }
 
 .feature-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 60%;
 }
 
 .stack-grid {
@@ -170,6 +192,26 @@ body {
   flex-direction: column;
   justify-content: space-between;
   gap: 1rem;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+  margin-bottom: 0.6rem;
+}
+
+.panel-title::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
 }
 
 .hero-panel,
@@ -193,6 +235,12 @@ body {
 .mini-panel,
 .quote-block {
   padding: 1rem 1.05rem;
+}
+
+.hero-panel,
+.card,
+.feature-card {
+  height: 100%;
 }
 
 .lede {
@@ -540,6 +588,23 @@ body {
   margin-top: 0.7rem;
 }
 
+.reveal .controls {
+  color: var(--paper-strong);
+}
+
+.reveal .controls button {
+  color: var(--paper-strong);
+}
+
+.reveal .progress {
+  color: var(--accent);
+  height: 0.45rem;
+}
+
+.reveal .progress span {
+  background: linear-gradient(90deg, var(--accent), var(--accent-cyan));
+}
+
 @media (max-width: 1100px) {
   .hero-grid,
   .grid-2,
@@ -552,7 +617,7 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .reveal .slides section {
+  .reveal .slides > section {
     padding: 1.4rem;
     overflow-y: auto;
   }
@@ -561,4 +626,3 @@ body {
     grid-template-columns: 1fr;
   }
 }
-
